@@ -24,6 +24,7 @@ except ImportError:
     "some functions dealing with the binary file (filtering, whitening...) will not work."))
 
 import json
+import re
 
 from npyx.utils import list_files, npa, read_pyfile
 
@@ -467,13 +468,27 @@ def get_npix_sync(dp, output_binary = False, filt_key='highpass', unit='seconds'
 
     # proceed
     if meta['acquisition_software'] == 'OpenEphys':
-        raise(('OpenEphys sync channel loading not implemented yet - '
-               'manually load ./Neuropix-PXI-100.0/TTL_1/timestamps.npy.'))
         filt_id    = 0 if filt_key=='highpass' else 1
-        timestamps = np.load(dp/f'events/Neuropix-PXI-100.{filt_id}/TTL_1/timestamps.npy')
 
-        onsets  = {ok:ov/srate for ok, ov in onsets.items()}
-        offsets = {ok:ov/srate for ok, ov in offsets.items()}
+        # get onsets and offsets
+        ts_path = os.path.join(dp,'events',meta['events'][filt_id]['folder_name'], 'sample_numbers.npy') 
+        words_path = os.path.join(dp,'events',meta['events'][filt_id]['folder_name'], 'full_words.npy') 
+        timestamps = np.load(ts_path)
+        on_off = np.load(words_path)
+        onsets, offsets = timestamps[on_off==1], timestamps[on_off==0]
+
+        # get the real value of the first timestamps 
+        mes_path = os.path.join(dp,'sync_messages.txt')
+        with open(mes_path,'r') as fio:
+            messages_text = fio.read()
+        pattern = f"@ {srate} Hz:(.*?)\n" 
+        glob_offset = int(re.search(pattern, messages_text).group(1))
+
+        onsets = onsets - glob_offset
+        offsets = offsets - glob_offset
+
+        onsets  = dict(zip(np.arange(len(onsets)) , onsets/srate))
+        offsets = dict(zip(np.arange(len(offsets)) , offsets/srate))
 
         return onsets,offsets
 
